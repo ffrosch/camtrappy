@@ -2,3 +2,4 @@
 *.code-workspace
 /testdata
 __pycache__
+Thumbs.db
