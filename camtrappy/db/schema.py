@@ -1,6 +1,6 @@
 from sqlalchemy import ForeignKey
 
-from sqlalchemy import Column, Date, DateTime, Float, Integer, String
+from sqlalchemy import Column, Date, DateTime, Float, Integer, String, Time, UniqueConstraint
 from sqlalchemy.orm import relation, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
@@ -15,6 +15,9 @@ class Video(Base):
 
     id = Column(Integer, primary_key=True)
     path = Column(String)
+    date = Column(Date)
+    starttime = Column(Time)
+    duration = Column(Time)
     date_added = Column(DateTime(timezone=True), server_default=func.now())
     location_id = Column(Integer, ForeignKey('locations.id'))
     location = relationship("Location", back_populates="videos")
@@ -31,6 +34,7 @@ class Location(Base):
     videos = relationship("Video", back_populates="location")
     project_id = Column(Integer, ForeignKey('projects.id'))
     project = relationship("Project", back_populates="locations")
+    __table_args__ = (UniqueConstraint('name', 'project_id', name='_name_project_uc'),)
 
 
 class Project(Base):
@@ -38,7 +42,9 @@ class Project(Base):
     __tablename__ = "projects"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String)
+    name = Column(String, unique=True)
     date_created = Column(Date, server_default=func.now())
     date_finished = Column(Date)
+    projectfolder = Column(String)
+    datafolder = Column(String)
     locations = relationship("Location", back_populates="project")
