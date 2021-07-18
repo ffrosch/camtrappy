@@ -1,5 +1,7 @@
+*.db
 .vscode
 *.code-workspace
-/testdata
+/tests/data/*
+!/tests/data/.gitkeep
 __pycache__
 Thumbs.db
