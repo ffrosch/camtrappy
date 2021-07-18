@@ -1,7 +1,8 @@
 from pathlib import Path
 home_dir = Path(__file__).parents[1]
-data_dir = str(home_dir / 'tests' / 'data')
-data_dir_real = str(home_dir / 'tests' / 'data' / 'real_datasets')
+data_dir = home_dir / 'tests' / 'data'
+data_dir_real = str(data_dir / 'real_datasets')
+data_dir_animals = str(data_dir / 'animals')
 # script_dir = str(home_dir / 'camtrappy')
 notebook_dir = str(home_dir / 'notebooks')
 

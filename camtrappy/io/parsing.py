@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
+from operator import itemgetter
 from pathlib import Path
 from typing import Dict, List
 
@@ -23,6 +24,14 @@ class Project:
         for format in self.videoformats:
             self.get_videos(format)
         self.get_datetime()
+        # finally make sure the data is sorted by date and time for easier use!
+        for location, data in self._data.items():
+            zipped = zip(data['videos'], data['dates'], data['times'])
+            videos, dates, times = zip(*sorted(zipped, key=itemgetter(1, 2)))
+            self._data[location]['videos'] = videos
+            self._data[location]['dates'] = dates
+            self._data[location]['times'] = times
+
 
     def get_locations(self):
         for location in Path(self.datafolder).iterdir():
