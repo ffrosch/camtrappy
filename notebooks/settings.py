@@ -1,9 +1,9 @@
 from pathlib import Path
 home_dir = Path(__file__).parents[1]
-data_dir = home_dir / 'tests' / 'data'
-data_dir_real = home_dir / 'tests' / 'data' / 'real_datasets'
-# script_dir = home_dir / 'camtrappy'
-notebook_dir = home_dir / 'notebooks'
+data_dir = str(home_dir / 'tests' / 'data')
+data_dir_real = str(home_dir / 'tests' / 'data' / 'real_datasets')
+# script_dir = str(home_dir / 'camtrappy')
+notebook_dir = str(home_dir / 'notebooks')
 
 # Set working directory
 import os
