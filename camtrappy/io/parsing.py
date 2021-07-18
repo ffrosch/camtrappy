@@ -8,9 +8,11 @@ from typing import Dict, List
 @dataclass
 class Project:
 
+    name: str
     projectfolder: str
     datafolder: str
     videoformats: List[str] = field(default_factory=list)
+    restrict_to: List[str] = field(default_factory=list)
     _data: Dict[str, Dict[str, List[str]]] = field(default_factory=defaultdict)
 
     def __post_init__(self):
@@ -25,11 +27,16 @@ class Project:
     def get_locations(self):
         for location in Path(self.datafolder).iterdir():
             if location.is_dir():
-                self._data[str(location.relative_to(self.datafolder))]
+                name = location.name #str(location.relative_to(self.datafolder))
+                if len(self.restrict_to) > 0 and name not in self.restrict_to:
+                    pass
+                else:
+                    self._data[name]
 
     def get_videos(self, format):
         locations = [Path(self.datafolder) / p for p in self._data.keys()]
         for location in locations:
+            print(f'Parsing location: {location.name}')
             for video in Path(location).rglob(f'*.{format}'):
                 self._data[location.name]['videos'].append(str(video.relative_to(location)))
 
@@ -58,6 +65,13 @@ class Project:
 
     def data(self, full_path=False, sort_by=None, filter_by=None):
         """
+        # data-dict
+        {location_name: {
+            videos: [],
+            dates: [],
+            times: []
+        }
+
         sort_by : {None, location, date, time}
         filter_by: {None, location, date, time}
         """
@@ -82,12 +96,5 @@ class Project:
             out_data.extend(zip([location] * len(videos), videos, dates, times))
         return out_data
 
-
-# data-dict
-"""
-{location: {
-    videos: [],
-    dates: [],
-    times: []
-}
-"""
+    def locations(self):
+        return list(self._data.keys())
