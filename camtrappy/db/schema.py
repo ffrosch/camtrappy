@@ -1,10 +1,20 @@
 from sqlalchemy import ForeignKey
 
-from sqlalchemy import Column, Date, DateTime, Float, Integer, String, Time, UniqueConstraint
-from sqlalchemy.orm import relation, relationship
+from sqlalchemy import (
+    Column,
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Time,
+    UniqueConstraint
+)
+
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.sql.sqltypes import Date
 
 
 Base = declarative_base()
@@ -47,4 +57,6 @@ class Project(Base):
     date_finished = Column(Date)
     projectfolder = Column(String)
     datafolder = Column(String)
+    relative_paths = Column(Boolean)
+    description = Column(String)
     locations = relationship("Location", back_populates="project")
