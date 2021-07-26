@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from typing import Dict, List
+from dataclasses import dataclass, field
+from typing import List
 
 import cv2
 
-from camtrappy.core.base import VideoLoader
+from camtrappy.core.base import VideoList, VideoLoader
 
 
 @dataclass
@@ -22,11 +22,15 @@ class VideoAnalysis:
     va.start(skip_frames)
     """
 
-    videos: Dict[str, any]
+    videos: VideoList
     exclude_area: List[int] = None
     road_area: List[int] = None
     setting_noise_reduction: int = None
+    stream: VideoLoader = field(init=False)
     # TODO: more settings
+
+    def __post_init__(self):
+        self.stream = VideoLoader(self.videos)
 
     def scan(self):
         # scan_stream (yield picture, current_frame)

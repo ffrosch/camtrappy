@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date as Date, time as Time
 from operator import attrgetter
 from pydantic.dataclasses import dataclass as dataclass_pydantic
@@ -13,16 +13,23 @@ from queue import Queue
 import cv2
 
 
-@dataclass_pydantic
+@dataclass_pydantic(unsafe_hash=True)
 class Video:
 
-    path: str
-    id: int = None
-    date: Date = None
-    time: Time = None
-    fps: int = None
-    duration: int = None
+    path: str = field(hash=True)
+    id: int = field(default=None, hash=False)
+    date: Date = field(default=None, hash=False)
+    time: Time = field(default=None, hash=False)
+    fps: int = field(default=None, hash=False)
+    duration: int = field(default=None, hash=False)
 
+    # greater than (gt) and lower than (lt)
+    # for easy chronological sorting, e.g. with sorted()
+    def __gt__(self, other):
+        return self.date >= other.date and self.time > other.time
+
+    def __lt__(self, other):
+        return self.date <= other.date and self.time < other.time
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Video:
@@ -53,51 +60,64 @@ class Video:
 class VideoList:
 
     videos: List[Video]
-    id: int = None
-    name: str = None
-    chronological: bool = False
+    idx: int = field(init=False)
 
-
+    # TODO: define __getitem__(), __setitem__()
     def __post_init__(self):
-        if self.chronological:
-            self.videos.sort(key=attrgetter('date', 'time'))
+        # idx is needed for __next__ and __iter__
+        self.idx = 0
+
+    # make "for x in VideoList" possible
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return len(self.videos)
+
+    # required for __iter__ to work
+    # can also be used for "next(VideoList)"
+    def __next__(self):
+        try:
+            item = self.videos[self.idx]
+        except IndexError:
+            self.idx = 0
+            raise StopIteration()
+        self.idx += 1
+        return item
+
+    # VideoList can be evaluated to True/False
+    def __nonzero__(self):
+        return bool(self.videos)
+
+    def chronological(self):
+        return VideoList(sorted(self.videos))
 
     @classmethod
-    def from_dict(cls,
-                  data: List[Dict[str, Any]],
-                  id=None,
-                  name=None,
-                  chronological=True) -> VideoList:
+    def from_dict(cls, data: List[Dict[str, Any]]) -> VideoList:
         """Create a VideoList from dictionaries.
 
-        The input can be a dictionary of dictionaries
-            {id: {attribute_name: attribute}}
-        or a list of dictionaries
+        The input can be a list of dictionaries
             [{attribute_name: attribute}]
 
         Parameters
         ----------
-        data : list | dict
-            list or dictionary of dictionaries
+        data : list
+            list of dictionaries
         """
         if type(data) == list:
-            videolist = [Video.from_dict(d) for d in data]
+            videolist = [Video(**d) for d in data]
         elif type(data) == dict:
-            videolist = [Video.from_dict(dict(id=id, **attributes))
+            videolist = [Video(id=id, **attributes)
                          for id, attributes in data.items()]
         else:
             raise ValueError(f'`data` is of type: {type(data)}. '
                              '`data` must be a list of dictionaries '
                              'or a dictionary of dictionaries!')
 
-        return cls(videolist, id, name, chronological)
+        return cls(videolist)
 
     @classmethod
-    def from_list(cls,
-                  data: List[str],
-                  id=None,
-                  name=None,
-                  chronological=False) -> VideoList:
+    def from_list(cls, data: List[str]) -> VideoList:
         """Create a VideoList from a list of file paths.
 
         Parameters
@@ -105,7 +125,7 @@ class VideoList:
         data : list
             list of strings
         """
-        return cls([Video(path) for path in data], id, name, chronological)
+        return cls([Video(path) for path in data])
 
     def to_dict(self, list_of_dicts: bool = False) -> Dict[str, Any]:
         """Return a dict of videos.
@@ -140,7 +160,7 @@ class VideoList:
 
 
 @dataclass
-class VideoLoader:
+class VideoLoader(VideoList):
     """Adapted from imutils.video.filevideostream, with modifications.
 
     Parameters
@@ -167,16 +187,21 @@ class VideoLoader:
         # do more stuff
     """
 
-    videos: Generator[Tuple[int, str], None, None]
     skip_frames: int = 9
     transform: Any = None
     queue_size: int = 500
 
     def __post_init__(self):
+        super().__post_init__()
         self.Q = Queue(maxsize=self.queue_size)
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
         self.stopped: bool = False
+        # TODO: not true! because we are working with a list the index is enough!
+        # we need an id to track which objects belong to which video
+        if self.videos[0].id == None:
+            for i, v in enumerate(self.videos):
+                v.id = i
 
     def start(self, single=False):
         """Start the update-method within a thread."""
@@ -188,8 +213,15 @@ class VideoLoader:
     def update(self):
         """Loop over the frames in a sequence of files."""
 
-        video_id, video_path = next(self.videos, (None, None))
-        self.stream = cv2.VideoCapture(video_path)
+        # TODO: add frame number counting
+
+        video = next(self, None)
+        if video:
+            video_id, video_path = video.id, video.path
+            self.stream = cv2.VideoCapture(video_path)
+        else:
+            video_id, video_path = None, None
+            self.stopped = True
 
         # keep looping infinitely
         while True:
@@ -227,7 +259,11 @@ class VideoLoader:
                     self.stream.release()
 
                     # load next video path if available
-                    video_id, video_path = next(self.videos, (None, None))
+                    video = next(self, None)
+                    if video:
+                        video_id, video_path = video.id, video.path
+                    else:
+                        video_id, video_path = None, None
 
                     # keep streaming if there are more files
                     if video_path:

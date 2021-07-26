@@ -6,8 +6,65 @@ from pathlib import Path
 from typing import Dict, List
 
 
+def datetime_from_filenames(lst, part=-1, slice=(0,15), sep='_', clock_24h=True):
+    dates, times = [], []
+    for path in lst:
+        date, time = Path(path).parts[part][slice[0]:slice[1]].split(sep)
+
+        # year as "yyyy"
+        if len(date) == 8:
+            Y = '%Y'
+        # year as "yy"
+        else:
+            Y = '%y'
+        date = datetime.strptime(date, f'{Y}%m%d').date()
+        dates.append(date)
+
+        # hours as "00-24"
+        if clock_24h:
+            H = '%H'
+        # hours as "00-12"
+        else:
+            H = '%I'
+        time = datetime.strptime(time, f'{H}%M%S').time()
+        times.append(time)
+    return dates, times
+
+
+def parse_locations(folder: str, restrict_to: List = None):
+    locations = []
+    for item in Path(folder).iterdir():
+        if item.is_dir():
+            name = item.name
+            if restrict_to and name not in restrict_to:
+                pass
+            else:
+                locations.append(name)
+    return locations
+
+
+def parse_videos(folder: str, format: str = 'mkv'):
+    folder = Path(folder)
+    print(f'Parsing folder: {folder.name}')
+
+    videos = []
+    for video in folder.rglob(f'*.{format}'):
+        videos.append(str(video.relative_to(folder)))
+    return videos
+
+
 @dataclass
-class Project:
+class ProjectParser:
+    """Wrapper to easily parse data from a project.
+
+    self._data: {
+        location-folder-name: {
+            videos: video-paths,
+            dates: video-dates,
+            times: video-times
+        }
+    }
+    """
 
     name: str
     projectfolder: str
@@ -23,7 +80,7 @@ class Project:
         self.get_locations()
         for format in self.videoformats:
             self.get_videos(format)
-        self.get_datetime()
+        self.get_datetimes()
         # finally make sure the data is sorted by date and time for easier use!
         for location, data in self._data.items():
             zipped = zip(data['videos'], data['dates'], data['times'])
@@ -32,45 +89,29 @@ class Project:
             self._data[location]['dates'] = dates
             self._data[location]['times'] = times
 
+    @property
+    def location_paths(self):
+        return [Path(self.datafolder) / p for p in self._data.keys()]
 
     def get_locations(self):
-        for location in Path(self.datafolder).iterdir():
-            if location.is_dir():
-                name = location.name #str(location.relative_to(self.datafolder))
-                if len(self.restrict_to) > 0 and name not in self.restrict_to:
-                    pass
-                else:
-                    self._data[name]
+        locations = parse_locations(self.datafolder, self.restrict_to)
+        for location in locations:
+            self._data[location]
 
     def get_videos(self, format):
-        locations = [Path(self.datafolder) / p for p in self._data.keys()]
-        for location in locations:
-            print(f'Parsing location: {location.name}')
-            for video in Path(location).rglob(f'*.{format}'):
-                self._data[location.name]['videos'].append(str(video.relative_to(location)))
+        for location in self.location_paths:
+            videos = parse_videos(location, format)
+            self._data[location.name]['videos'] = videos
 
-    def get_datetime(self, part=-1, slice=(0,15), sep='_', clock_24h=True):
+    def get_datetimes(self, part=-1, slice=(0,15), sep='_', clock_24h=True):
         for location, lists in self._data.items():
-            for video in lists['videos']:
-                date, time = Path(video).parts[part][slice[0]:slice[1]].split(sep)
-
-                # year as "yyyy"
-                if len(date) == 8:
-                    Y = '%Y'
-                # year as "yy"
-                else:
-                    Y = '%y'
-                date = datetime.strptime(date, f'{Y}%m%d').date()
-                self._data[location]['dates'].append(date)
-
-                # hours as "00-24"
-                if clock_24h:
-                    H = '%H'
-                # hours as "00-12"
-                else:
-                    H = '%I'
-                time = datetime.strptime(time, f'{H}%M%S').time()
-                self._data[location]['times'].append(time)
+            dates, times = datetime_from_filenames(lists['videos'],
+                                                   part=part,
+                                                   slice=slice,
+                                                   sep=sep,
+                                                   clock_24h=clock_24h)
+            self._data[location]['dates'] = dates
+            self._data[location]['times'] = times
 
     def data(self, full_path=False, sort_by=None, filter_by=None):
         """
