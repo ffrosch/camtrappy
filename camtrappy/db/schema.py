@@ -28,14 +28,15 @@ class Video(Base):
     path = Column(String, nullable=False)
     date = Column(Date)
     time = Column(Time)
-    fps = Column(Integer)
-    duration = Column(Time)
+    fps = Column(Float)
+    duration = Column(Float)
     date_added = Column(DateTime(timezone=True), server_default=func.now())
     location_id = Column(Integer, ForeignKey('locations.id'))
     location = relationship("Location", back_populates="videos")
 
     def __repr__(self):
-        return f'Video(id={self.id}, path={self.path}, date={self.date}, time={self.time}, fps={self.fps}, duration={self.duration})'
+        return f'Video(id={self.id}, path={self.path}, date={self.date}, '\
+               f'time={self.time}, fps={self.fps}, duration={self.duration})'
 
     # greater than (gt) and lower than (lt)
     # for easy chronological sorting, e.g. with sorted()
@@ -50,14 +51,8 @@ class Video(Base):
 
         Dict structure is {attribute_name: attribute}.
         """
-        return dict(
-            id=self.id,
-            path=self.path,
-            date=self.date,
-            time=self.time,
-            fps=self.fps,
-            duration=self.duration
-        )
+        return dict(id=self.id, path=self.path, date=self.date, time=self.time,
+            fps=self.fps, duration=self.duration)
 
 class Location(Base):
 

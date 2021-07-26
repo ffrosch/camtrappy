@@ -10,3 +10,4 @@ dependencies:
     - scikit-image=0.18.1
     - scikit-learn=0.24.1
     - sqlalchemy=1.4
+    - ffmpeg-python

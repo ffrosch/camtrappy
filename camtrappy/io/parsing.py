@@ -5,6 +5,9 @@ from operator import itemgetter
 from pathlib import Path
 from typing import Dict, List
 
+import cv2
+import ffmpeg
+
 
 def datetime_from_filenames(lst, part=-1, slice=(0,15), sep='_', clock_24h=True):
     dates, times = [], []
@@ -29,6 +32,26 @@ def datetime_from_filenames(lst, part=-1, slice=(0,15), sep='_', clock_24h=True)
         time = datetime.strptime(time, f'{H}%M%S').time()
         times.append(time)
     return dates, times
+
+
+def duration_from_files(lst):
+    durations = []
+    for video in lst:
+        probe = ffmpeg.probe(video)
+        duration = probe['format']['duration']
+        durations.append(duration)
+    return durations
+
+
+def fps_from_files(lst):
+    """Requires FULL PATH!"""
+    fps_lst = []
+    for file in lst:
+        video = cv2.VideoCapture(file)
+        fps = video.get(cv2.CAP_PROP_FPS)
+        fps_lst.append(fps)
+        video.release()
+    return fps_lst
 
 
 def parse_locations(folder: str, restrict_to: List = None):
@@ -81,17 +104,29 @@ class ProjectParser:
         for format in self.videoformats:
             self.get_videos(format)
         self.get_datetimes()
+        self.get_fps()
+        self.get_durations()
         # finally make sure the data is sorted by date and time for easier use!
         for location, data in self._data.items():
-            zipped = zip(data['videos'], data['dates'], data['times'])
-            videos, dates, times = zip(*sorted(zipped, key=itemgetter(1, 2)))
+            zipped = zip(data['videos'], data['dates'], data['times'], data['fps'], data['durations'])
+            videos, dates, times, fps, durations = zip(*sorted(zipped, key=itemgetter(1, 2))) # sort by date, time
             self._data[location]['videos'] = videos
             self._data[location]['dates'] = dates
             self._data[location]['times'] = times
+            self._data[location]['fps'] = fps
+            self._data[location]['durations'] = durations
+
+    @property
+    def locations(self):
+        return list(self._data.keys())
 
     @property
     def location_paths(self):
-        return [Path(self.datafolder) / p for p in self._data.keys()]
+        return [Path(self.datafolder) / p for p in self.locations]
+
+    def video_paths(self, location):
+        videos = self._data[location]['videos']
+        return [str(Path(self.datafolder) / location / video) for video in videos]
 
     def get_locations(self):
         locations = parse_locations(self.datafolder, self.restrict_to)
@@ -113,38 +148,26 @@ class ProjectParser:
             self._data[location]['dates'] = dates
             self._data[location]['times'] = times
 
-    def data(self, full_path=False, sort_by=None, filter_by=None):
-        """
-        # data-dict
-        {location_name: {
-            videos: [],
-            dates: [],
-            times: []
-        }
+    def get_fps(self):
+        for location in self.locations:
+            videos = self.video_paths(location)
+            fps_lst = fps_from_files(videos)
+            self._data[location]['fps'] = fps_lst
 
-        sort_by : {None, location, date, time}
-        filter_by: {None, location, date, time}
-        """
-        # TODO: implement sort_by
-        # TODO: implement filter_by
-        out_data = {}
-        for location in self._data.keys():
-            location_path = location
-            video_paths = self._data[location]['videos']
-            if full_path:
-                location_path = str(Path(self.datafolder) / Path(location))
-                video_paths = [str(Path(location_path) / Path(v)) for v in video_paths]
-            out_data[location_path] = video_paths
-        return out_data
+    def get_durations(self):
+        for location in self.locations:
+            videos = self.video_paths(location)
+            durations = duration_from_files(videos)
+            self._data[location]['durations'] = durations
 
-    def data_flat(self):
-        out_data = []
-        for location in self._data.keys():
-            videos = self._data[location]['videos']
-            dates = self._data[location]['dates']
-            times = self._data[location]['times']
-            out_data.extend(zip([location] * len(videos), videos, dates, times))
-        return out_data
+    def data(self, location):
+        d = self._data[location]
 
-    def locations(self):
-        return list(self._data.keys())
+        paths = d['videos']
+        dates = d['dates']
+        times = d['times']
+        fps = d['fps']
+        durations = d['durations']
+
+        return [dict(path=path, date=date, time=time, fps=fps, duration=duration)
+                for path, date, time, fps, duration in zip(paths, dates, times, fps, durations)]

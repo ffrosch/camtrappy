@@ -37,10 +37,6 @@ class VideoAnalysis:
         # get signal (video_id, video_path, starttime, duration) from stream if new video begins and log this data to any active object
         pass
 
-    def _yield_videos(self):
-        for video_id, video in self.videos.items():
-            yield video_id, video['path']
-
     def start(self, skip_frames=9):
         vl = VideoLoader(self._yield_videos(), skip_frames)
         vl.start()
