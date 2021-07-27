@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy import ForeignKey
 
 from sqlalchemy import (
@@ -12,7 +14,8 @@ from sqlalchemy import (
     UniqueConstraint
 )
 
-from sqlalchemy.orm import relationship
+from sqlalchemy import and_, select
+from sqlalchemy.orm import column_property, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.ext.declarative import declarative_base
 
@@ -20,12 +23,43 @@ from typing import Any, Dict
 
 Base = declarative_base()
 
+
+class Project(Base):
+
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True)
+    date_created = Column(Date, server_default=func.now())
+    date_finished = Column(Date)
+    projectfolder = Column(String)
+    datafolder = Column(String)
+    relative_paths = Column(Boolean)
+    description = Column(String)
+    locations = relationship("Location", back_populates="project")
+
+
+class Location(Base):
+
+    __tablename__ = "locations"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    folder = Column(String)
+    lat = Column(Float)
+    lon = Column(Float)
+    videos = relationship("Video", back_populates="location")
+    project_id = Column(Integer, ForeignKey('projects.id'))
+    project = relationship("Project", back_populates="locations")
+    __table_args__ = (UniqueConstraint('name', 'project_id', name='_name_project_uc'),)
+
+
 class Video(Base):
 
     __tablename__ = "videos"
 
     id = Column(Integer, primary_key=True)
-    path = Column(String, nullable=False)
+    path = Column('path', String, nullable=False)
     date = Column(Date)
     time = Column(Time)
     fps = Column(Float)
@@ -54,31 +88,20 @@ class Video(Base):
         return dict(id=self.id, path=self.path, date=self.date, time=self.time,
             fps=self.fps, duration=self.duration)
 
-class Location(Base):
 
-    __tablename__ = "locations"
+query_datafolder = select(Project.datafolder).where(
+    and_(Project.id == Location.project_id,
+         Location.id == Video.location_id)
+).scalar_subquery()
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    folder = Column(String)
-    lat = Column(Float)
-    lon = Column(Float)
-    videos = relationship("Video", back_populates="location")
-    project_id = Column(Integer, ForeignKey('projects.id'))
-    project = relationship("Project", back_populates="locations")
-    __table_args__ = (UniqueConstraint('name', 'project_id', name='_name_project_uc'),)
+query_locationfolder = select(Location.folder).where(
+    Location.id == Video.location_id
+).scalar_subquery()
 
-
-class Project(Base):
-
-    __tablename__ = "projects"
-
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True)
-    date_created = Column(Date, server_default=func.now())
-    date_finished = Column(Date)
-    projectfolder = Column(String)
-    datafolder = Column(String)
-    relative_paths = Column(Boolean)
-    description = Column(String)
-    locations = relationship("Location", back_populates="project")
+Video.datafolder = column_property(query_datafolder)
+Video.locationfolder = column_property(query_locationfolder)
+Video.fullpath = column_property(Video.datafolder +
+                                 os.sep +
+                                 Video.locationfolder +
+                                 os.sep +
+                                 Video.path)

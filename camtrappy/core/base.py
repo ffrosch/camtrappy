@@ -18,11 +18,8 @@ from camtrappy.db.schema import Video, Location, Project
 def get_videos(Session, location_id):
     with Session.begin() as session:
         q = session.query(Video)\
-            .join(Location)\
-            .filter(Location.id == location_id)\
+            .where(Video.location_id == location_id)\
             .order_by(Video.date, Video.time)
-    for v in q:
-        v.path = f'{v.location.project.datafolder}\\{v.location.folder}\\{v.path}'
     return q.all()
 
 @dataclass
@@ -114,7 +111,7 @@ class VideoLoader(VideoList):
         # TODO: add frame number counting
 
         video = next(self, None)
-        self.stream = cv2.VideoCapture(video.path)
+        self.stream = cv2.VideoCapture(video.fullpath)
 
         while True:
 
@@ -143,7 +140,7 @@ class VideoLoader(VideoList):
                     self.stream.release() # stop file-access on exhausted file
                     video = next(self, None)
                     if video:
-                        self.stream = cv2.VideoCapture(video.path)
+                        self.stream = cv2.VideoCapture(video.fullpath)
                     else:
                         self.stopped = True
 
