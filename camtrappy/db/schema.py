@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    Index,
     Integer,
     String,
     Time,
@@ -55,7 +56,8 @@ class Location(Base):
 
 
 class Video(Base):
-
+    # TODO: combine date and time column into datetime column
+    # -> this will simplify timezone adjustments
     __tablename__ = "videos"
 
     id = Column(Integer, primary_key=True)
@@ -67,6 +69,7 @@ class Video(Base):
     date_added = Column(DateTime(timezone=True), server_default=func.now())
     location_id = Column(Integer, ForeignKey('locations.id'))
     location = relationship("Location", back_populates="videos")
+    Index('video_date_time_idx', 'date', 'time')
 
     def __repr__(self):
         return f'Video(id={self.id}, path={self.path}, date={self.date}, '\

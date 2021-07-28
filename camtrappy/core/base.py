@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import time
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, InitVar
 from datetime import date as Date, time as Time
 from operator import attrgetter
 from pydantic.dataclasses import dataclass as dataclass_pydantic
+from sqlalchemy.orm import sessionmaker
 from typing import Any, Dict, Generator, List, Tuple
 from threading import Thread
 from queue import Queue
@@ -14,6 +15,16 @@ import cv2
 
 from camtrappy.db.schema import Video, Location, Project
 
+
+def location_id_by_name(Session, name):
+    # TODO: account for possibility that a location can have the same name
+    # but belong to a different project!
+    with Session.begin() as session:
+        q = session.query(Location)\
+            .where(Location.name == name)\
+            .one()
+        id = q.id
+    return id
 
 def get_videos(Session, location_id):
     with Session.begin() as session:
@@ -25,15 +36,15 @@ def get_videos(Session, location_id):
 @dataclass
 class VideoList:
 
-    Session: Any
-    location_id: int
+    Session: InitVar[sessionmaker]
+    location_id: InitVar[int]
     videos: List[Video] = field(init=False)
     idx: int = field(init=False)
 
-    def __post_init__(self):
+    def __post_init__(self, Session, location_id):
         # idx is needed for __next__ and __iter__
         self.idx = 0
-        self.videos = get_videos(self.Session, self.location_id)
+        self.videos = get_videos(Session, location_id)
 
     def __iter__(self):
         # makes "for x in VideoList" possible
@@ -95,8 +106,8 @@ class VideoLoader(VideoList):
     transform: Any = None
     queue_size: int = 500
 
-    def __post_init__(self):
-        super().__post_init__()
+    def __post_init__(self, Session, location_id):
+        super().__post_init__(Session, location_id)
         self.Q = Queue(maxsize=self.queue_size)
 
     def start(self, single=False):
