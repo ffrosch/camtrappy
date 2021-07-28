@@ -4,11 +4,12 @@ channels:
 dependencies:
     # required
     - python=3.8
-    - opencv=4.5.1
+    - opencv=4.5
     - numpy=1.20.1
     - pillow=8.1.1
+    - pip=21
     - pydantic=1.8.2
-    - scikit-image=0.18.1
+    - scikit-image=0.18
     - scikit-learn=0.24.1
     - sqlalchemy=1.4
     - sqlalchemy-utils=0.37
@@ -23,3 +24,8 @@ dependencies:
 
     # styling
     - black
+
+    - pip:
+        # opencv headless & contrib are needed to enable PyLance for cv2
+        - opencv-python-headless
+        - opencv-contrib-python
