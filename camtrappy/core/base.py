@@ -12,6 +12,7 @@ from threading import Thread
 from queue import Queue
 
 import cv2
+import numpy as np
 
 from camtrappy.db.schema import Video, Location, Project
 
@@ -140,9 +141,10 @@ class VideoLoader(VideoList):
                 grabbed, frame = self.stream.read() # grab next frame from file
 
                 if grabbed: # if there was a frame to grab
+                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     # do transforms on it
                     if self.transform:
-                        frame = self.transform(frame)
+                        frame = self.transform.transform(frame)
 
                     # add the frame to the queue
                     self.Q.put((video.id, frame))
@@ -160,7 +162,7 @@ class VideoLoader(VideoList):
 
     def read(self):
         """Return next frame in the queue."""
-        return self.Q.get(timeout=2) # (video_id, frame)
+        return self.Q.get(timeout=0.5) # (video_id, frame)
 
     def more(self):
         """Return True if queue not empty or stream not stopped."""
@@ -185,29 +187,80 @@ class VideoLoader(VideoList):
         # wait for the stream resources to be released
         self.thread.join()
 
-    def show(self):
-        self.start()
-
-        # loop over frames from the video file stream
-        while self.more():
-            try:
-                video_id, frame = self.read()
-            except:
-                break
-            # display the size of the queue on the frame
-            cv2.putText(frame, f"Queue Size: {self.Q.qsize()}",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            # display the video id on the frame
-            cv2.putText(frame, f"Video ID: {video_id}",
-                (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            # show the frame
-            cv2.imshow("Frame", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-        # do a bit of cleanup
-        cv2.destroyAllWindows()
-        self.stop()
-        self.reset()
-
     def reset(self):
         self.idx = 0
+
+
+@dataclass
+class VideoPlayer:
+
+    vl: VideoLoader
+
+    def play(self, base_transforms=None, compare_transforms=None, visitor=None):
+        self.vl.start()
+
+        # loop over frames from the video file stream
+        while self.vl.more():
+            try:
+                video_id, frame = self.vl.read()
+            except:
+                break
+
+            if base_transforms:
+                for t in base_transforms:
+                    frame = t.transform(frame)
+
+            if compare_transforms:
+                frames = [frame]
+                for t in compare_transforms:
+                    frame = t.transform(frame)
+                    frames.append(frame)
+
+                if visitor:
+                    visitor.detect(frames[-1])
+                    visitor.draw(frames[0])
+
+                if len(frames) % 2 != 0:
+                    frames.append(np.zeros(frame.shape, dtype=frame.dtype))
+                size = len(frames)
+                left, right = frames[:size//2], frames[size//2:]
+                frame1 = np.hstack(left)
+                frame2 = np.hstack(right)
+                frame = np.vstack((frame1, frame2))
+
+            self.put_text(frame, video_id=video_id)
+            cv2.imshow("Frame", frame)
+
+            self.act_on_key()
+
+        # do a bit of cleanup
+        self.close()
+
+    def close(self):
+        cv2.destroyAllWindows()
+        self.vl.stop()
+        self.vl.reset()
+
+    def put_text(self, frame, **kwargs):
+        x, y = 10, 30
+        # display the size of the queue on the frame
+        cv2.putText(frame, f"Queue Size: {self.vl.Q.qsize()}",
+            (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        # display more info
+        for k, v in kwargs.items():
+            y += 20
+            cv2.putText(frame, f"{k}: {v}",
+                (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+    def act_on_key(self):
+        paused = False
+        while True:
+            k = cv2.waitKey(1)
+            if k == 27 or k == ord('q'): # press 'ESC' or 'q' to close
+                self.close()
+                break
+            if k == ord(' '): # pause/unpause with 'space'
+                paused = True if not paused else False
+            if not paused:
+                break
+            time.sleep(0.1)
