@@ -108,10 +108,10 @@ class VideoLoader(VideoList):
 
     def __post_init__(self, Session, location_id):
         super().__post_init__(Session, location_id)
-        self.Q = Queue(maxsize=self.queue_size)
 
     def start(self, single=False):
         """Start the update-method within a thread."""
+        self.Q = Queue(maxsize=self.queue_size)
         self.thread = Thread(target=self.update, args=())
         self.thread.daemon = True
         self.stopped: bool = False
@@ -130,7 +130,7 @@ class VideoLoader(VideoList):
                 break
 
             if self.Q.full():
-                print('Queue is full, waiting...')
+                # print('Queue is full, waiting...')
                 time.sleep(0.1)
 
             # grab frame if queue is not full
@@ -160,7 +160,7 @@ class VideoLoader(VideoList):
 
     def read(self):
         """Return next frame in the queue."""
-        return self.Q.get() # (video_id, frame)
+        return self.Q.get(timeout=2) # (video_id, frame)
 
     def more(self):
         """Return True if queue not empty or stream not stopped."""
@@ -190,7 +190,10 @@ class VideoLoader(VideoList):
 
         # loop over frames from the video file stream
         while self.more():
-            video_id, frame = self.read()
+            try:
+                video_id, frame = self.read()
+            except:
+                break
             # display the size of the queue on the frame
             cv2.putText(frame, f"Queue Size: {self.Q.qsize()}",
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
@@ -201,7 +204,6 @@ class VideoLoader(VideoList):
             cv2.imshow("Frame", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-
         # do a bit of cleanup
         cv2.destroyAllWindows()
         self.stop()
