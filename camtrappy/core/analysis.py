@@ -1,68 +1,62 @@
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import List
 
 import cv2
 
-from camtrappy.core.base import VideoList, VideoLoader
+from camtrappy.core.base import VideoLoader
+
+
+@dataclass
+class ObjectTracker:
+    """
+    objects: {
+        id: {
+            video_id: {
+                frames: [],
+                bboxes: [],
+                centroids: []
+            },
+            lost: bool,
+        }
+    }
+    """
+
+
+    objects: OrderedDict = None
+    min: int = 50
+
+    def detect(self, frame):
+        """Search for new objects."""
+        contours, _ = cv2.findContours(frame,
+                                       cv2.RETR_TREE,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        self.contours = [c for c in contours if cv2.contourArea(c) > self.min]
+
+    def track(self):
+        """Track existing objects."""
+        pass
+
+    def draw(self, frame):
+        """Return frame with marked objects."""
+        for c in self.contours:
+            rect = cv2.boundingRect(c)
+            x, y, w, h = rect
+            cv2.rectangle(frame, (x, y), (x + w, y + h), 255, 2)
 
 
 @dataclass
 class VideoAnalysis:
-    """Analyse videos.
 
-    Parameters
-    ----------
-
-    Notes
-    -----
-    Use like this:
-    videos = {id: {'path': 'path/to/file'}}
-    skip_frames = 9
-    va = VideoAnalysis(videos)
-    va.start(skip_frames)
-    """
-
-    videos: VideoList
     exclude_area: List[int] = None
     road_area: List[int] = None
     setting_noise_reduction: int = None
     stream: VideoLoader = field(init=False)
-    # TODO: more settings
 
-    def __post_init__(self):
-        self.stream = VideoLoader(self.videos)
-
-    def scan(self):
-        # scan_stream (yield picture, current_frame)
-        # get signal (video_id, video_path, starttime, duration) from stream if new video begins and log this data to any active object
-        pass
-
-    def start(self, skip_frames=9):
-        vl = VideoLoader(self._yield_videos(), skip_frames)
-        vl.start()
-
-        # loop over frames from the video file stream
-        while vl.more():
-            video_id, frame = vl.read()
-            # display the size of the queue on the frame
-            cv2.putText(frame, f"Queue Size: {vl.Q.qsize()}",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            # display the video id on the frame
-            cv2.putText(frame, f"Video ID: {video_id}",
-                (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            # show the frame
-            cv2.imshow("Frame", frame)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-        # do a bit of cleanup
-        cv2.destroyAllWindows()
-        vl.stop()
 
 # What should the data structure look like?
 """
 # TODO: define a better structure for video list
-# Goal1: it should be guaranteed to be sorted by datetime (can be done in-class)
 # Goal2: it should be possible to define max-time-gap between two videos
 #   to decide whether to treat them separately
 
