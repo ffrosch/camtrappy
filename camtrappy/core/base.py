@@ -266,8 +266,7 @@ class VideoPlayer:
                 frame = transforms.transform(frame)
 
                 if visitor:
-                    visitor.detect(frame.last)
-                    visitor.draw(frame.original)
+                    visitor.apply(frame)
 
                 for i, t in enumerate(transforms.transforms, 1):
                     name = type(t).__name__
