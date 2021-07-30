@@ -1,4 +1,5 @@
 from __future__ import annotations
+from camtrappy.core.transforms import ITransform, Resize, TransformFactory
 
 import time
 
@@ -8,7 +9,7 @@ from operator import attrgetter
 from pydantic.dataclasses import dataclass as dataclass_pydantic
 from sqlalchemy.orm import sessionmaker
 from typing import Any, Dict, Generator, List, Tuple
-from threading import Thread
+from threading import Thread, settrace
 from queue import Queue
 
 import cv2
@@ -98,8 +99,12 @@ class Frame:
     def original(self):
         return self._data[0]
 
+    @original.setter
+    def original(self, frame):
+        self._data[0] = frame
+
     @property
-    def final(self):
+    def last(self):
         return self._data[-1]
 
     @property
@@ -141,7 +146,7 @@ class VideoLoader(VideoList):
     #     Restart object trackers after every single video.
 
     skip_n_frames: int = 9
-    transform: Any = None
+    transforms: TransformFactory = None
     queue_size: int = 500
 
     def __post_init__(self, Session, location_id):
@@ -175,16 +180,22 @@ class VideoLoader(VideoList):
             else:
                 self.skip_frames(self.skip_n_frames) # skip `self.skip_n_frames`
 
-                grabbed, frame = self.stream.read() # grab next frame from file
+                grabbed, raw_frame = self.stream.read() # grab next frame from file
 
                 if grabbed: # if there was a frame to grab
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    # get frame number
+                    frame_no = self.stream.get(cv2.CAP_PROP_POS_FRAMES)
+                    # convert to grayscale
+                    raw_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
+
+                    frame = Frame(video.id, frame_no, [raw_frame])
+
                     # do transforms on it
-                    if self.transform:
-                        frame = self.transform.transform(frame)
+                    if self.transforms:
+                        frame = self.transforms.transform(frame)
 
                     # add the frame to the queue
-                    self.Q.put((video.id, frame))
+                    self.Q.put(frame)
 
                 else: # `grabbed` is False, end of file reached
                     self.stream.release() # stop file-access on exhausted file
@@ -233,40 +244,42 @@ class VideoPlayer:
 
     vl: VideoLoader
 
-    def play(self, base_transforms=None, compare_transforms=None, visitor=None):
+    def play(self,
+             resize: Resize = True,
+             transforms: TransformFactory = None,
+             visitor=None):
+
         self.vl.start()
 
         # loop over frames from the video file stream
         while self.vl.more():
             try:
-                video_id, frame = self.vl.read()
+                frame = self.vl.read()
+                out_frame = frame.last
             except:
                 break
 
-            if base_transforms:
-                for t in base_transforms:
-                    frame = t.transform(frame)
+            if resize:
+                frame.original = resize.transform(frame.original)
 
-            if compare_transforms:
-                frames = [frame]
-                for t in compare_transforms:
-                    frame = t.transform(frame)
-                    frames.append(frame)
+            if transforms:
+                frame = transforms.transform(frame)
 
                 if visitor:
-                    visitor.detect(frames[-1])
-                    visitor.draw(frames[0])
+                    visitor.detect(frame.last)
+                    visitor.draw(frame.original)
 
-                if len(frames) % 2 != 0:
-                    frames.append(np.zeros(frame.shape, dtype=frame.dtype))
-                size = len(frames)
-                left, right = frames[:size//2], frames[size//2:]
+                if len(frame) % 2 != 0:
+                    frame.append(np.zeros(frame.original.shape, dtype=frame.original.dtype))
+                size = len(frame)
+                left, right = frame[:size//2], frame[size//2:]
                 frame1 = np.hstack(left)
                 frame2 = np.hstack(right)
-                frame = np.vstack((frame1, frame2))
+                combined_frame = np.vstack((frame1, frame2))
+                out_frame = combined_frame
 
-            self.put_text(frame, video_id=video_id)
-            cv2.imshow("Frame", frame)
+            self.put_text(out_frame, video_id=frame.video_id)
+            cv2.imshow("Frame", out_frame)
 
             self.act_on_key()
 

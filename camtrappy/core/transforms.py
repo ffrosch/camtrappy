@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 import abc
 
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, TYPE_CHECKING, Tuple
 
 import cv2
 import numpy as np
 from skimage import filters
 from skimage.util import img_as_ubyte
+
+
+if TYPE_CHECKING:
+    from camtrappy.core.base import Frame
 
 
 class ITransform(metaclass=abc.ABCMeta):
@@ -20,9 +26,10 @@ class TransformFactory(ITransform):
 
     transforms: List[ITransform]
 
-    def transform(self, frame):
+    def transform(self, frame: Frame):
         for t in self.transforms:
-            frame = t.transform(frame)
+            transformed = t.transform(frame.last)
+            frame.append(transformed)
         return frame
 
 
