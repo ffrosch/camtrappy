@@ -160,6 +160,7 @@ class Hysteresis(ITransform):
 class Normalize(ITransform):
 
     def transform(self, frame):
+        frame = frame.copy()
         return cv2.normalize(frame, frame, 0, 255, cv2.NORM_MINMAX)
 
 
