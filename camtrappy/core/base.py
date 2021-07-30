@@ -87,6 +87,43 @@ class VideoList:
 
 
 @dataclass
+class Frame:
+    """Behaves like a list."""
+
+    video_id: int
+    frame_no: int
+    _data: List[np.ndarray]
+
+    @property
+    def original(self):
+        return self._data[0]
+
+    @property
+    def final(self):
+        return self._data[-1]
+
+    @property
+    def versions(self):
+        return self._data
+
+    @property
+    def transformed(self):
+        return len(self._data) > 1
+
+    def __getattr__(self, method):
+        return getattr(self._data, method)
+
+    def __len__(self):
+        return len(self._data)
+
+    def __getitem__(self, item):
+        return self._data[item]
+
+    def __setitem__(self, item, value):
+        self._data[item] = value
+
+
+@dataclass
 class VideoLoader(VideoList):
     """Adapted from imutils.video.filevideostream, with modifications.
 
