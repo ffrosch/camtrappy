@@ -269,16 +269,19 @@ class VideoPlayer:
                     visitor.detect(frame.last)
                     visitor.draw(frame.original)
 
+                for i, t in enumerate(transforms.transforms, 1):
+                    name = type(t).__name__
+                    self.put_text(frame[i], Transform=name)
+
                 if len(frame) % 2 != 0:
                     frame.append(np.zeros(frame.original.shape, dtype=frame.original.dtype))
                 size = len(frame)
                 left, right = frame[:size//2], frame[size//2:]
-                frame1 = np.hstack(left)
-                frame2 = np.hstack(right)
-                combined_frame = np.vstack((frame1, frame2))
-                out_frame = combined_frame
+                out_frame = np.vstack((np.hstack(left), np.hstack(right)))
 
-            self.put_text(out_frame, video_id=frame.video_id)
+            self.put_text(out_frame,
+                          QueueSize=self.vl.Q.qsize(),
+                          VideoID=frame.video_id)
             cv2.imshow("Frame", out_frame)
 
             self.act_on_key()
@@ -293,14 +296,10 @@ class VideoPlayer:
 
     def put_text(self, frame, **kwargs):
         x, y = 10, 30
-        # display the size of the queue on the frame
-        cv2.putText(frame, f"Queue Size: {self.vl.Q.qsize()}",
-            (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        # display more info
         for k, v in kwargs.items():
-            y += 20
             cv2.putText(frame, f"{k}: {v}",
-                (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 2)
+            y += 20
 
     def act_on_key(self):
         paused = False
