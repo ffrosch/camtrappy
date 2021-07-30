@@ -1,6 +1,9 @@
 # CamTrapPy
 
-A software to analyse and organise camera trapping data in Python.
+A software to analyse video data from thermal cameras in Python.
+Later versions might also support picture data.
+
+![This is what the software can do](./doc/example.jpg)
 
 ## Development
 
