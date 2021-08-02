@@ -107,14 +107,6 @@ class Frame:
     def last(self):
         return self._data[-1]
 
-    @property
-    def versions(self):
-        return self._data
-
-    @property
-    def transformed(self):
-        return len(self._data) > 1
-
     def __getattr__(self, method):
         return getattr(self._data, method)
 
