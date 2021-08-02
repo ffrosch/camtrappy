@@ -247,6 +247,7 @@ class VideoPlayer:
     def play(self,
              resize: Resize = True,
              transforms: TransformFactory = None,
+             compare: bool = True,
              visitor=None):
 
         self.vl.start()
@@ -268,15 +269,18 @@ class VideoPlayer:
                 if visitor:
                     visitor.apply(frame)
 
-                for i, t in enumerate(transforms.transforms, 1):
-                    name = type(t).__name__
-                    self.put_text(frame[i], Transform=name)
+                if compare:
+                    for i, t in enumerate(transforms.transforms, 1):
+                        name = type(t).__name__
+                        self.put_text(frame[i], Transform=name)
 
-                if len(frame) % 2 != 0:
-                    frame.append(np.zeros(frame.original.shape, dtype=frame.original.dtype))
-                size = len(frame)
-                left, right = frame[:size//2], frame[size//2:]
-                out_frame = np.vstack((np.hstack(left), np.hstack(right)))
+                    if len(frame) % 2 != 0:
+                        frame.append(np.zeros(frame.original.shape, dtype=frame.original.dtype))
+                    size = len(frame)
+                    left, right = frame[:size//2], frame[size//2:]
+                    out_frame = np.vstack((np.hstack(left), np.hstack(right)))
+                else:
+                    out_frame = frame.original
 
             self.put_text(out_frame,
                           QueueSize=self.vl.Q.qsize(),
