@@ -94,17 +94,17 @@ class Object:
     id: int
     _data: OrderedDict = field(default_factory=OrderedDict)
 
-    def add(self, video_id, frame_no, bbox):
-        video = self._data.get(video_id, OrderedDict())
-
-        bboxes = video.get('bboxes', list())
-        bboxes.append(bbox)
-
-        frames = video.get('frames', list())
-        frames.append(frame_no)
+    def add(self, video_id, frame_no, bbox, centroid):
+        video = self._data.setdefault(video_id, OrderedDict())
+        video.setdefault('frames', list()).append(frame_no)
+        video.setdefault('bboxes', list()).append(bbox)
+        video.setdefault('centroids', list()).append(centroid)
 
     def bboxes(self, video_id):
         return self._data[video_id]['bboxes']
+
+    def centroids(self, video_id):
+        return self._data[video_id]['centroids']
 
     def frames(self, video_id):
         return self._data[video_id]['frames']
@@ -115,38 +115,13 @@ class Object:
         return self.bboxes(video_id)[-1]
 
     @property
+    def last_centroid(self):
+        video_id = next(reversed(self._data))
+        return self.centroids(video_id)[-1]
+
+    @property
     def video_ids(self):
         return list(self._data.keys())
-
-
-@dataclass
-class Objects:
-
-    next_object_id: int = 0
-    finished_objects: OrderedDict[int, Object] = field(default_factory=OrderedDict)
-    current_objects: OrderedDict[int, Object] = field(default_factory=OrderedDict)
-    disappeared_objects: OrderedDict[int, Object] = field(default_factory=OrderedDict)
-
-    def register(self, video_id, frame_no, bbox):
-        id = self.next_object_id
-
-        object = self.current_objects.get(id, Object(id))
-        object.add(video_id, frame_no, bbox)
-
-        self.disappeared_objects[id] = 0
-
-        self.next_object_id += 1
-
-    def deregister(self, object_id):
-        self.finished_objects[object_id] = self.current_objects.pop(object_id)
-        del self.disappeared_objects[object_id]
-
-    def update(self, bboxes):
-        pass
-
-    def save_to_db(self):
-        """Pop all items in self.finished_objects and push to database."""
-        pass
 
 
 @dataclass

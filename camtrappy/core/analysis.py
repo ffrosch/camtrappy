@@ -12,6 +12,8 @@ import cv2
 import numpy as np
 from scipy.spatial import distance as dist
 
+from camtrappy.core.base import Object
+
 
 if TYPE_CHECKING:
     from camtrappy.core.base import Frame, VideoLoader
@@ -64,11 +66,11 @@ def draw_bboxes(frame: Frame, bboxes: List[np.ndarray]):
         x, y, w, h = bbox
         cv2.rectangle(frame.original, (x, y), (x + w, y + h), 255, 2)
 
-def draw_object_ids(frame: Frame, objects):
-        for objectID, centroid in objects.items():
+def draw_object_ids(frame: Frame, objects: OrderedDict[Object]):
+        for objectID, object in objects.items():
             text = f'ID {objectID}'
             img = frame.original
-            x, y = centroid
+            x, y = object.last_centroid
             cv2.putText(img, text, (x - 20, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 0)
             cv2.circle(img, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 255, 2)
 
@@ -144,9 +146,10 @@ class CentroidTracker(IVisitor):
         # been marked as "disappeared", respectively
         self.min_area = min_area
         self.eps = eps
-        self.nextObjectID = 0
-        self.objects = OrderedDict()
-        self.disappeared = OrderedDict()
+        self.next_object_id: int = 0
+        self.finished_objects: OrderedDict[int, Object] = OrderedDict()
+        self.current_objects: OrderedDict[int, Object] = OrderedDict()
+        self.disappeared_objects: OrderedDict[int, Object] = OrderedDict()
 
         # store the number of maximum consecutive frames a given
         # object is allowed to be marked as "disappeared" until we
@@ -157,59 +160,61 @@ class CentroidTracker(IVisitor):
         contours = detect_contours(frame, self.min_area)
         bboxes = bboxes_from_polygons(contours)
         bboxes = merge_bboxes(bboxes, eps=self.eps)
-        objects = self.update(bboxes)
+        objects = self.update(frame.video_id, frame.frame_no, bboxes)
 
         draw_bboxes(frame, bboxes)
         draw_object_ids(frame, objects)
 
-    def register(self, centroid):
-        # when registering an object we use the next available object
-        # ID to store the centroid
-        self.objects[self.nextObjectID] = centroid
-        self.disappeared[self.nextObjectID] = 0
-        self.nextObjectID += 1
+    def register(self, video_id, frame_no, bbox, centroid):
+        id = self.next_object_id
+        self.current_objects.\
+            setdefault(id, Object(id)).\
+            add(video_id, frame_no, bbox, centroid)
 
-    def deregister(self, objectID):
-        # to deregister an object ID we delete the object ID from
-        # both of our respective dictionaries
-        del self.objects[objectID]
-        del self.disappeared[objectID]
+        self.disappeared_objects[id] = 0
+        self.next_object_id += 1
 
-    def update(self, rects):
-        # check to see if the list of input bounding box rectangles
-        # is empty
-        if len(rects) == 0:
+    def deregister(self, object_id):
+        self.finished_objects[object_id] = self.current_objects[object_id]
+
+        del self.current_objects[object_id]
+        del self.disappeared_objects[object_id]
+
+    def update(self, video_id, frame_no, bboxes):
+        if len(bboxes) == 0:
             # loop over any existing tracked objects and mark them
             # as disappeared
-            keys = list(self.disappeared.keys())
-            for objectID in keys:
-                self.disappeared[objectID] += 1
+            keys = list(self.disappeared_objects.keys())
+            for object_id in keys:
+                self.disappeared_objects[object_id] += 1
 
                 # if we have reached a maximum number of consecutive
                 # frames where a given object has been marked as
                 # missing, deregister it
-                if self.disappeared[objectID] > self.maxDisappeared:
-                    self.deregister(objectID)
+                if self.disappeared_objects[object_id] > self.maxDisappeared:
+                    self.deregister(object_id)
 
             # return early as there are no centroids or tracking info
             # to update
-            return self.objects
+            return self.current_objects
 
-        inputCentroids = centroids_from_bboxes(rects)
+        inputCentroids = centroids_from_bboxes(bboxes)
 
         # if we are currently not tracking any objects take the input
         # centroids and register each of them
-        if len(self.objects) == 0:
+        if len(self.current_objects) == 0:
             for i in range(0, len(inputCentroids)):
-                self.register(inputCentroids[i])
+                self.register(video_id, frame_no, bboxes[i], inputCentroids[i])
 
         # otherwise, are are currently tracking objects so we need to
         # try to match the input centroids to existing object
         # centroids
         else:
             # grab the set of object IDs and corresponding centroids
-            objectIDs = list(self.objects.keys())
-            objectCentroids = list(self.objects.values())
+            ids = self.current_objects.keys()
+            objects = self.current_objects.values()
+            objectIDs = list(ids)
+            objectCentroids = [o.last_centroid for o in list(objects)]
 
             # compute the distance between each pair of object
             # centroids and input centroids, respectively -- our
@@ -248,8 +253,8 @@ class CentroidTracker(IVisitor):
                 # set its new centroid, and reset the disappeared
                 # counter
                 objectID = objectIDs[row]
-                self.objects[objectID] = inputCentroids[col]
-                self.disappeared[objectID] = 0
+                self.current_objects[objectID].add(video_id, frame_no, bboxes[col], inputCentroids[col])
+                self.disappeared_objects[objectID] = 0
 
                 # indicate that we have examined each of the row and
                 # column indexes, respectively
@@ -271,12 +276,12 @@ class CentroidTracker(IVisitor):
                     # grab the object ID for the corresponding row
                     # index and increment the disappeared counter
                     objectID = objectIDs[row]
-                    self.disappeared[objectID] += 1
+                    self.disappeared_objects[objectID] += 1
 
                     # check to see if the number of consecutive
                     # frames the object has been marked "disappeared"
                     # for warrants deregistering the object
-                    if self.disappeared[objectID] > self.maxDisappeared:
+                    if self.disappeared_objects[objectID] > self.maxDisappeared:
                         self.deregister(objectID)
 
             # otherwise, if the number of input centroids is greater
@@ -284,10 +289,10 @@ class CentroidTracker(IVisitor):
             # register each new input centroid as a trackable object
             else:
                 for col in unusedCols:
-                    self.register(inputCentroids[col])
+                    self.register(video_id, frame_no, bboxes[col], inputCentroids[col])
 
         # return the set of trackable objects
-        return self.objects
+        return self.current_objects
 
 
 @dataclass
