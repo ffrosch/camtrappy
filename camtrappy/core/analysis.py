@@ -13,10 +13,12 @@ import numpy as np
 from scipy.spatial import distance as dist
 
 from camtrappy.core.base import Object
+from camtrappy.db.schema import Object as DbObject, VideoObject
 
 
 if TYPE_CHECKING:
     from camtrappy.core.base import Frame, VideoLoader
+    from sqlalchemy.orm import sessionmaker
 
 
 def bboxes_from_polygons(polygons: List[np.ndarray]) -> List[np.ndarray]:
@@ -136,6 +138,7 @@ class CentroidTracker(IVisitor):
                  min_area: int = None,
                  eps: float = 1.5,
                  maxDisappeared: int= 50,
+                 Session: sessionmaker = None,
                  apply_args: List[str] = list()):
 
         super().__init__(apply_args)
@@ -156,6 +159,8 @@ class CentroidTracker(IVisitor):
         # need to deregister the object from tracking
         self.maxDisappeared = maxDisappeared
 
+        self.Session = Session
+
     def apply(self, frame: Frame):
         contours = detect_contours(frame, self.min_area)
         bboxes = bboxes_from_polygons(contours)
@@ -164,6 +169,21 @@ class CentroidTracker(IVisitor):
 
         draw_bboxes(frame, bboxes)
         draw_object_ids(frame, objects)
+
+        if self.Session:
+            with self.Session.begin() as session:
+                new_objects = []
+                while len(self.finished_objects) > 0:
+                    object = self.finished_objects.popitem()[1]
+                    db_object = DbObject()
+                    for video_id in object.video_ids:
+                        vo = VideoObject(video_id=video_id,
+                                         object=db_object,
+                                         frames=object.frames(video_id),
+                                         bboxes=object.bboxes(video_id),
+                                         centroids=object.bboxes(video_id))
+                        new_objects.append(vo)
+                session.add_all(new_objects)
 
     def register(self, video_id, frame_no, bbox, centroid):
         id = self.next_object_id

@@ -1,3 +1,4 @@
+import json
 import os
 
 from sqlalchemy import ForeignKey
@@ -10,15 +11,18 @@ from sqlalchemy import (
     Float,
     Index,
     Integer,
+    JSON,
+    LargeBinary,
     String,
     Time,
     UniqueConstraint
 )
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, PickleType
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import column_property, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.ext.declarative import declarative_base
 
 from typing import Any, Dict
 
@@ -69,6 +73,7 @@ class Video(Base):
     date_added = Column(DateTime(timezone=True), server_default=func.now())
     location_id = Column(Integer, ForeignKey('locations.id'))
     location = relationship("Location", back_populates="videos")
+    data = relationship("VideoObject", back_populates="video")
     Index('video_date_time_idx', 'date', 'time')
 
     def __repr__(self):
@@ -108,3 +113,24 @@ Video.fullpath = column_property(Video.datafolder +
                                  Video.locationfolder +
                                  os.sep +
                                  Video.path)
+
+
+class Object(Base):
+    __tablename__ = "objects"
+
+    id = Column(Integer, primary_key=True)
+    data = relationship("VideoObject", back_populates="object")
+
+
+
+class VideoObject(Base):
+    __tablename__ = "videos_objects"
+
+    video_id = Column(Integer, ForeignKey('videos.id'), primary_key=True)
+    object_id = Column(Integer, ForeignKey('objects.id'), primary_key=True)
+    frames = Column(JSON)
+    bboxes = Column(JSON)
+    centroids = Column(JSON)
+    thumbnail = Column(LargeBinary)
+    object = relationship("Object", back_populates="data")
+    video = relationship("Video", back_populates="data")
