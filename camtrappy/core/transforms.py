@@ -94,6 +94,14 @@ class BgsMOG(ITransform):
 
 
 @dataclass
+class BgsMOGMask(BgsMOG):
+
+    def transform(self, frame):
+        mask = self.bgsub.apply(frame, self.learningrate)
+        return cv2.bitwise_and(frame, frame, mask=mask)
+
+
+@dataclass
 class BilateralFilter(ITransform):
 
     diameter: int = 5
