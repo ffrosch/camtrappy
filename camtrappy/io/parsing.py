@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import Enum
 from operator import itemgetter
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import cv2
+import dateutil
 import ffmpeg
+import xml.etree.ElementTree as ET
 
 
 def datetime_from_filenames(lst, part=-1, slice=(0,15), sep='_', clock_24h=True):
@@ -171,3 +176,177 @@ class ProjectParser:
 
         return [dict(path=path, date=date, time=time, fps=fps, duration=duration)
                 for path, date, time, fps, duration in zip(paths, dates, times, fps, durations)]
+
+
+class Seperator(Enum):
+    EMPTY = ''
+    HYPHEN = '-'
+    UNDERSCORE = '_'
+
+
+class DatePattern(Enum):
+    YYYYMMDD = '%Y%m%d'
+
+
+class TimePattern(Enum):
+    HHmmss = '%H%M%S'
+
+
+@dataclass
+class DatetimeParser:
+    __slots__ = ('date', 'time', 'seperator', 'from_beginning')
+    date: DatePattern
+    time: TimePattern
+    seperator: Seperator
+    from_beginning: bool  # True = datetime is at the beginning of the filename, False = it's at the end
+
+    def __str__(self) -> str:
+        now = datetime.now()
+        pattern = self._format()
+        string = now.strftime(pattern)
+        return string
+
+    def _format(self) -> str:
+        pattern = self.date.value + self.seperator.value + self.time.value
+        return pattern
+
+    def demo(self):
+        return self.__str__()
+
+    def str_to_datetime(self, string) -> datetime:
+        pattern = self._format()
+        dtime = datetime.strptime(string, pattern)
+        return dtime
+
+
+class Metadata:
+    __slots__ = ('starttime', 'stoptime', 'fps', 'width', 'height', 'status')
+    aliases = {
+        'start_time': 'starttime',
+        'stop_time': 'stoptime',
+        'endtime': 'stoptime',
+        'frames_per_second': 'fps',
+    }
+
+    def __init__(
+            self,
+            starttime: Optional[datetime] = None,
+            stoptime: Optional[datetime] = None,
+            fps: Optional[float] = None,
+            width: Optional[int] = None,
+            height: Optional[int] = None,
+            status: Optional[str] = None
+        ):
+
+        self.starttime = starttime
+        self.stoptime = stoptime
+        self.fps = fps
+        self.width = width
+        self.height = height
+        self.status = status
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        name = self.aliases.get(name, name)
+        object.__setattr__(self, name, value)
+
+    def __getattr__(self, name: str) -> Any:
+        if name == 'aliases':
+            raise AttributeError  # http://nedbatchelder.com/blog/201010/surprising_getattr_recursion.html
+        name = self.aliases.get(name, name)
+        return object.__getattribute__(self, name)
+
+    def __add__(self, other: Metadata) -> Metadata:
+        """Only adds attributes from `other` if attribut from self is `None`."""
+        starttime = self.starttime if self.starttime is not None else other.starttime
+        stoptime = self.stoptime if self.stoptime is not None else other.stoptime
+        fps = self.fps if self.fps is not None else other.fps
+        width = self.width if self.width is not None else other.width
+        height = self.height if self.height is not None else other.height
+        status = self.status if self.status is not None else other.status
+
+        return Metadata(starttime=starttime, stoptime=stoptime, fps=fps,
+                        width=width, height=height, status=status)
+
+
+@dataclass
+class VideoFile:
+    __slots__ = ('path', 'metadata')
+    path: str
+
+    def __post_init__(self):
+        self.metadata: Metadata()
+
+    def get_metadata(self, priority='sidecar'):
+        sidecar = metadata_from_sidecarfile(self.path)
+        ffmpeg = metadata_with_ffmpeg(self.path)
+
+        if priority == 'sidecar':
+            meta = sidecar + ffmpeg
+        if priority == 'ffmpeg':
+            meta = ffmpeg + sidecar
+
+        return meta
+
+
+def metadata_from_sidecarfile(path: str) -> Metadata:
+    if not path.is_file():
+        return
+
+    meta = Metadata()
+
+    tree = ET.parse(path)
+    root = tree.getroot()
+    for child in root:
+        tag = child.tag.lower()
+        if hasattr(meta, tag):
+            setattr(meta, tag, child.text)
+
+    return meta
+
+
+def metadata_with_ffmpeg(path: str) -> Metadata:
+    filemeta = ffmpeg.probe(path)
+    meta = Metadata()
+
+    if 'streams' in filemeta:
+        stream = filemeta['streams'][0]
+
+        meta.width = int(stream.get('width'))
+        meta.height = int(stream.get('height'))
+        meta.fps = int(stream.get('avg_frame_rate').split('/')[0])
+
+    if 'format' in filemeta:
+        format = filemeta['format']
+
+        _datetime_string = format.get('tags', {}).get('creation_time')
+        _duration = float(format.get('duration'))
+
+        meta.starttime = dateutil.parser.isoparse(_datetime_string)
+        meta.stoptime = meta.starttime + timedelta(seconds=_duration)
+
+    return meta
+
+
+def starttime_from_videofile(path: str,
+                             datetime_parser: DatetimeParser,
+                             seperator: Seperator) -> datetime:
+
+    # get datetime
+    filename = Path(path).name
+    parts = filename.split(seperator.value)
+    datetime_seperator = datetime_parser.seperator
+
+    datetime_is_continuous = (datetime_seperator == Seperator.EMPTY) or (datetime_seperator != seperator)
+    if datetime_parser.from_beginning:
+        if datetime_is_continuous:
+            datetime_string = parts[0]
+        else:
+            datetime_string = datetime_seperator.value.join((parts[0], parts[1]))
+    else:
+        if datetime_is_continuous:
+            datetime_string = parts[-1]
+        else:
+            datetime_string = datetime_seperator.value.join((parts[-2], parts[-1]))
+
+    starttime = datetime_parser.str_to_datetime(datetime_string)
+    return starttime

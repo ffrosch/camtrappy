@@ -13,7 +13,7 @@ dependencies:
     - scikit-learn=0.24.1
     - sqlalchemy=1.4
     - sqlalchemy-utils=0.37
-    - ffmpeg-python
+    - ffmpeg-python=0.2
 
     # interactive development
     - jupyterlab=3.0.0
@@ -27,5 +27,6 @@ dependencies:
 
     - pip:
         # opencv headless & contrib are needed to enable PyLance for cv2
-        - opencv-python-headless
-        - opencv-contrib-python
+        - opencv-python-headless=4.5
+        - opencv-contrib-python=4.5
+        - python-dateutil=2.8
