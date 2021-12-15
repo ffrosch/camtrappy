@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import itertools
+import os
+
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum
+from glob import glob
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 import cv2
 import dateutil
 import ffmpeg
+import numpy as np
 import xml.etree.ElementTree as ET
+
+from camtrappy.errors import UnresolvedFoldersError
+from camtrappy.interfaces import IProject
 
 
 def datetime_from_filenames(lst, part=-1, slice=(0,15), sep='_', clock_24h=True):
@@ -305,11 +312,12 @@ class Metadata:
 
 @dataclass
 class VideoFile:
-    __slots__ = ('path', 'location', 'session', 'sublocation', 'metadata')
+    __slots__ = ('path', 'location', 'sublocation', 'session', 'camera_no', 'metadata')
     path: str
     location: str
-    session: Optional[str]
     sublocation: Optional[str]
+    session: Optional[str]
+    camera_no: Optional[str]
 
     def __post_init__(self) -> None:
         self.metadata: Metadata = None
@@ -410,6 +418,173 @@ def metadata_with_ffmpeg(path: str) -> Metadata:
         meta.stoptime = meta.starttime + timedelta(seconds=_duration)
 
     return meta
+
+
+@dataclass
+class Project(IProject):
+    """Easy Data Parsing.
+
+    Examples
+    --------
+    >>> p = Project('c/my_project', '{locations}/videodata/{sublocations}', 'mkv')
+    >>> p.folderstructure
+    'c/my_project/{location}/videodata/{sublocation}'
+    >>> p.folder_hierarchy
+    ['location', 'sublocation']
+    >>> p.folder_indices
+    [2, 4]
+    >>> p.folder_structure_wildcards
+    'c/my_project/*/videodata/*'
+    >>> p.folders
+    [
+        {'location': 'location1', 'sublocation': 'sublocation1},
+        {'location': 'location1', 'sublocation': 'sublocation2},
+    ]
+    >>> p.format_paths(p.folders)
+    [
+        'c/my_project/location1/videodata/sublocation1',
+        'c/my_project/location1/videodata/sublocation2',
+    ]
+    >>> videos = p.get_videos(location='location1)  # returns videos for the given location
+    >>> videos = p.get_videos()  # returns all videos of the project
+    >>> next(videos)
+    VideoFile(path='c/my_project/location1/videodata/sublocation1/video1.mkv',
+    ...       location='location1', sublocation='sublocation1', camera_no=None)
+    """
+    projectfolder: str
+    folderstructure: str
+    videoformat: str
+
+    folderstructure_placeholders: Dict[str, str] = field(init=False)
+    _kwargs: Dict[str, str] = field(init=False)
+
+    def __post_init__(self):
+        # Add platform specific folder seperator at the end
+        # Thus `glob` only ever returns folders
+        self.projectfolder = str(Path(self.projectfolder)) + os.sep
+        self.folderstructure = str(Path(self.projectfolder) / self.folderstructure) + os.sep
+
+        # possible keyword arguments
+        self._kwargs = dict(location=None, sublocation=None, session=None, camera_no=None)
+
+        # placeholders for possible keyword arguments
+        # can be used to define the folder structure of a project
+        placeholders = {key: f'{{{key}}}' for key in self._kwargs.keys()}
+
+        hierarchy = {}
+        for key, value in placeholders.copy().items():
+            folders = Path(self.folderstructure).parts
+            try:
+                index = folders.index(value)
+            except:
+                del placeholders[key]
+            else:
+                hierarchy[key] = index
+
+        self._folderorder = dict(sorted(hierarchy.items(), key=lambda item: item[1]))
+        self.folderstructure_placeholders = placeholders
+
+    def _check_path_is_valid(self, folders: List[str], **kwargs):
+        """Raise an error if a placeholder is missing."""
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        for folder in folders:
+            try:
+                kwargs.pop(folder)
+            except:
+                if len(kwargs) > 0:
+                    raise UnresolvedFoldersError(folder, kwargs)
+                else:
+                    break
+        return True
+
+    @property
+    def folder_hierarchy(self) -> List[str]:
+        """The names of folder placeholders in order."""
+        return list(self._folderorder.keys())
+
+    @property
+    def folder_indices(self) -> List[int]:
+        """The indices of folder placeholders in order."""
+        return list(self._folderorder.values())
+
+    @property
+    def folder_structure_wildcards(self) -> str:
+        """The folderstructure with wildcards (*) instead of placeholders.
+
+        Examples
+        --------
+        >>> Project.folderstructure
+        c/data/{location}/
+        >>> Project.folder_structure_wildcards
+        c/data/*/
+        """
+        return self.folderstructure.format(
+            **{folder: '*' for folder in self.folder_hierarchy}
+            )
+
+    @property
+    def folders(self) -> List[Dict[str, str]]:
+        """Return a list of dictionarys for all folder branches."""
+        paths = glob(self.folder_structure_wildcards)
+        args = [np.array(Path(path).parts)[self.folder_indices].tolist() for path in paths]
+        kwargs_list = [dict(zip(self.folder_hierarchy, folder_names)) for folder_names in args]
+        return kwargs_list
+
+    def format_paths(self, kwargs_list: List[Dict[str, str]]) -> List[str]:
+        """Generate path strings for all given folder branches."""
+        return [self.folderstructure.format(**kwargs) for kwargs in kwargs_list]
+
+    def get_folder(self, **kwargs) -> str:
+        """Return path for given location, sublocation, session, camera_no."""
+        self._check_path_is_valid(self.folder_hierarchy, **kwargs)
+
+        # this is quite hacky...
+        # '{location}'.format() will either replace it with a location name, or with '{location}'
+        # because a formatting value must be provided for each formatting placeholder in a string
+        arguments = {**self.folderstructure_placeholders, **kwargs}
+        raw_path = self.folderstructure.format(**arguments)
+
+        path = raw_path.split('{')[0]
+        return path
+
+    def get_videos(self, **kwargs: Dict[str, Optional[str]]) -> Generator[VideoFile, None, None]:
+        """Return list of VideoFile objects.
+
+        If keyword arguments are provided, they must match the folder hierarchy.
+
+        Parameters
+        ----------
+        location : str, optional
+        sublocation : str, optional
+        session : str, optional
+        camera_no : str, optional
+
+        Returns
+        -------
+        generator : [VideoFile, None, None]
+        """
+        # make sure the given arguments match the folder hierarchy
+        self._check_path_is_valid(self.folder_hierarchy, **kwargs)
+
+        # get all folders matching the arguments
+        # if `kwargs` is empty,
+        #   all folders from the folder hierarchy will be scanned
+        folders_list = [d for d in self.folders
+                        if set(kwargs.items()) <= set(d.items())]
+
+        paths = self.format_paths(folders_list)
+
+        videos = [Path(path).rglob(f'*.{self.videoformat}') for path in paths]
+        videos = itertools.chain.from_iterable(videos)
+
+        for video_path in videos:
+            kwargs = self._kwargs.copy()
+            for index, folder in zip(self.folder_indices, self.folder_hierarchy):
+                kwargs[folder] = video_path.parts[index]
+
+            yield(VideoFile(str(video_path), **kwargs))
+
 
 
 # class Seperator(Enum):
